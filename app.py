@@ -30,7 +30,10 @@ async def webhook(request: Request):
     return PlainTextResponse("OK")
 
 @handler.add(MessageEvent, message=TextMessage)
-def handle_message(user_id, user_input):
+def handle_message(event):
+    user_id = event.source.user_id
+    user_input = event.message.text
+
     # 儲存使用者訊息
     save_user_message(user_id, {"role": "user", "content": user_input})
     
@@ -41,17 +44,21 @@ def handle_message(user_id, user_input):
     messages = build_prompt(user_id, user_input, history)
     
     # 呼叫 GPT
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(  # ← 注意這裡用的是你引入的 OpenAI Python SDK 新版寫法
         model="gpt-4",
         messages=messages
     )
-    reply_text = response['choices'][0]['message']['content']
-    
+    reply_text = response.choices[0].message.content
+
     # fallback 檢查（語氣異常再修正）
     if is_robotic_response(reply_text):
         fallback_prompt = "請自然地、像人一樣溫柔地回答剛剛的問題，不要提到 AI 或系統。"
-        messages = [{"role": "system", "content": fallback_prompt}, {"role": "user", "content": user_input}]
-        response = openai.ChatCompletion.create(model="gpt-4", messages=messages)
-        reply_text = response['choices'][0]['message']['content']
+        fallback_messages = [{"role": "system", "content": fallback_prompt}, {"role": "user", "content": user_input}]
+        response = client.chat.completions.create(model="gpt-4", messages=fallback_messages)
+        reply_text = response.choices[0].message.content
 
-    return reply_text
+    # 傳回 LINE
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=reply_text)
+    )
