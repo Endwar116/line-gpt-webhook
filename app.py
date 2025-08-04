@@ -39,7 +39,7 @@ def handle_message(event):
 
     # 呼叫新版 OpenAI API
     response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4o",
         messages=messages,
         temperature=0.7
     )
