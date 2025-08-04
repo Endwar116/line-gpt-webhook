@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from linebot.exceptions import InvalidSignatureError
+from roles import get_prompt, available_roles
 
 app = FastAPI()
 
@@ -32,12 +33,20 @@ async def webhook(req: Request):
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_message = event.message.text
+
+    # 根據使用者輸入判斷語氣（簡單示範：若輸入以 B: 開頭則使用選項 B）
+    if user_message.startswith("B:"):
+        role = "分析導向"
+        user_message = user_message[2:].strip()
+    else:
+        role = "鏡像陪伴"
+
     messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "system", "content": get_prompt(role)},
         {"role": "user", "content": user_message}
     ]
 
-    # 呼叫新版 OpenAI API
+    # 呼叫 OpenAI API
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=messages,
