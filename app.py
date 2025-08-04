@@ -2,8 +2,9 @@ from flask import Flask, request
 import os
 from openai import OpenAI
 
-app = Flask(__name__)
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+client = OpenAI(
+    api_key="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"
+)
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
