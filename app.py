@@ -5,8 +5,8 @@ import openai
 app = Flask(__name__)
 
 # 對接路由，這裡非常重要要是 /callback
-@app.route("/callback", methods=["POST"])
-def callback():
+@app.route("/webhook", methods=["POST"])
+def webhook():
     from_line = request.get_json()
 
     if not from_line or "events" not in from_line:
