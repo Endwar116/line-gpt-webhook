@@ -4,7 +4,7 @@ import openai
 
 app = Flask(__name__)
 
-# 對接路由，這裡非常重要要是 /callback
+# 對接路由，這裡非常重要要是 /webhook
 @app.route("/webhook", methods=["POST"])
 def webhook():
     from_line = request.get_json()
@@ -13,9 +13,15 @@ def webhook():
         abort(400)
 
     try:
-        user_msg = from_line["events"][0]["message"]["text"]
-    except KeyError:
-        return "Ignored (not a text message)", 200  # LINE 有可能發 sticker、follow event
+        event = from_line["events"][0]
+        if event["type"] != "message" or event["message"]["type"] != "text":
+            return "Ignored non-text message", 200
+
+        user_msg = event["message"]["text"]
+
+    except KeyError as e:
+        print("KeyError 發生：", e)
+        return "Bad Request - Missing expected field", 400
 
     # GPT 回答邏輯
     openai.api_key = os.environ.get("OPENAI_API_KEY")
