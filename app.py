@@ -30,22 +30,28 @@ async def webhook(request: Request):
     return PlainTextResponse("OK")
 
 @handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    user_message = event.message.text
-
-    # 呼叫 OpenAI GPT API
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": user_message}]
+def handle_message(user_id, user_input):
+    # 儲存使用者訊息
+    save_user_message(user_id, {"role": "user", "content": user_input})
+    
+    # 取得對話歷史（如需）
+    history = get_user_history(user_id)
+    
+    # 建立完整 prompt（含語氣、記憶）
+    messages = build_prompt(user_id, user_input, history)
+    
+    # 呼叫 GPT
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=messages
     )
-    reply_text = response.choices[0].message.content.strip()
+    reply_text = response['choices'][0]['message']['content']
+    
+    # fallback 檢查（語氣異常再修正）
+    if is_robotic_response(reply_text):
+        fallback_prompt = "請自然地、像人一樣溫柔地回答剛剛的問題，不要提到 AI 或系統。"
+        messages = [{"role": "system", "content": fallback_prompt}, {"role": "user", "content": user_input}]
+        response = openai.ChatCompletion.create(model="gpt-4", messages=messages)
+        reply_text = response['choices'][0]['message']['content']
 
-    # 回傳給 LINE 使用者
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=reply_text)
-    )
-
-# ⚠️ 僅供本地測試（Render 不會執行這段）
-if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=10000, reload=True)
+    return reply_text
