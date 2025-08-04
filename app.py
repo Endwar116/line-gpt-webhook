@@ -1,74 +1,76 @@
+import os
 from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse
-from linebot import LineBotApi, WebhookHandler
+from linebot import LineBotApi, WebhookParser
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from linebot.exceptions import InvalidSignatureError
-import os
-import json
-import uvicorn
-
-# 匯入模組
-from prompt_builder import build_prompt
-from fallback_checker import is_robotic_response
-from memory_json import save_user_message, get_user_history
 import openai
+import json
 
-# 初始化
 app = FastAPI()
 
-# 讀取環境變數（請在 Render 設定好）
-LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
-LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+# 讀取環境變數
+CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
+CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
+if not CHANNEL_SECRET or not CHANNEL_ACCESS_TOKEN or not OPENAI_API_KEY:
+    raise ValueError("環境變數未設定正確")
+
+line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
+parser = WebhookParser(CHANNEL_SECRET)
 openai.api_key = OPENAI_API_KEY
+
+# 模擬記憶儲存結構（僅記憶 10 則對話）
+memory = {}
+
+def save_user_message(user_id, message):
+    if user_id not in memory:
+        memory[user_id] = []
+    memory[user_id].append(message)
+    memory[user_id] = memory[user_id][-10:]  # 保留最近 10 則
+
+def build_prompt(messages):
+    system_prompt = {"role": "system", "content": "你是一個溫暖且能深入提問的情緒陪伴者。"}
+    return [system_prompt] + messages
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    signature = request.headers.get("X-Line-Signature", "")
+    signature = request.headers["X-Line-Signature"]
     body = await request.body()
 
     try:
-        handler.handle(body.decode(), signature)
+        events = parser.parse(body.decode(), signature)
     except InvalidSignatureError:
-        return PlainTextResponse("Invalid signature", status_code=400)
+        return "Invalid signature", 400
 
-    return PlainTextResponse("OK")
+    for event in events:
+        if isinstance(event, MessageEvent) and isinstance(event.message, TextMessage):
+            handle_message(event)
 
-@handler.add(MessageEvent, message=TextMessage)
+    return "OK"
+
 def handle_message(event):
     user_id = event.source.user_id
     user_input = event.message.text
 
-    # 儲存訊息
+    # 儲存使用者輸入
     save_user_message(user_id, {"role": "user", "content": user_input})
 
-    # 抓取歷史訊息
-    history = get_user_history(user_id)
-
     # 建立 prompt
-    messages = build_prompt(user_id, user_input, history)
+    messages = build_prompt(memory[user_id])
 
-    # 呼叫 OpenAI
+    # 呼叫 GPT
     response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=messages
+        model="gpt-3.5-turbo",
+        messages=messages,
+        temperature=0.7,
     )
-    reply_text = response['choices'][0]['message']['content']
+    reply_text = response.choices[0].message["content"]
 
-    # 語氣 fallback 偵測
-    if is_robotic_response(reply_text):
-        fallback_prompt = "請自然地、像人一樣溫柔地回答剛剛的問題，不要提到 AI 或系統。"
-        fallback_messages = [
-            {"role": "system", "content": fallback_prompt},
-            {"role": "user", "content": user_input}
-        ]
-        response = openai.ChatCompletion.create(model="gpt-4", messages=fallback_messages)
-        reply_text = response['choices'][0]['message']['content']
+    # 儲存 AI 回覆
+    save_user_message(user_id, {"role": "assistant", "content": reply_text})
 
-    # 回傳
+    # 回覆給 LINE 使用者
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text=reply_text)
