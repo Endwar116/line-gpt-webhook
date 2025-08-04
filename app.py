@@ -1,3 +1,10 @@
+import os
+import openai
+from flask import Flask, request
+
+app = Flask(__name__)  # ← ✅ Gunicorn 會找這個
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     from_line = request.get_json()
