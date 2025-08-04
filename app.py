@@ -3,7 +3,7 @@ import os
 from openai import OpenAI
 
 client = OpenAI(
-    api_key="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"
+    api_key=os.environ.get("OPENAI_API_KEY")  # 從環境變數讀取金鑰
 )
 
 @app.route("/webhook", methods=["POST"])
